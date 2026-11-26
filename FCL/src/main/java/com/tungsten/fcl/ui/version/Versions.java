@@ -20,6 +20,10 @@ import com.tungsten.fcl.ui.download.modpack.LocalModpackPage;
 import com.tungsten.fcl.ui.download.modpack.ModpackSelectionPage;
 import com.tungsten.fcl.ui.manage.ModpackTypeSelectionPage;
 import com.tungsten.fcl.util.TaskCancellationAction;
+import androidx.appcompat.app.AppCompatDialog;
+import com.tungsten.fcl.ui.download.version.VersionInstallInfoPage;
+import com.tungsten.fclcore.download.GameBuilder;
+import com.tungsten.fclcore.task.TaskListener;
 import com.tungsten.fclcore.auth.Account;
 import com.tungsten.fclcore.download.game.GameAssetDownloadTask;
 import com.tungsten.fclcore.mod.RemoteMod;
@@ -241,8 +245,16 @@ public class Versions {
     }
 
     public static void launch(Context context, Profile profile, String id, Consumer<LauncherHelper> injector) {
-        if (!checkVersionForLaunching(context, profile, id))
+        String targetVersion = "1.21.11";
+        if (id == null || !profile.getRepository().isLoaded() || !profile.getRepository().hasVersion(id)) {
+            if (profile.getRepository().hasVersion(targetVersion)) {
+                profile.setSelectedVersion(targetVersion);
+                launch(context, profile, targetVersion, injector);
+            } else {
+                autoInstallAndLaunch(context, profile, targetVersion, injector);
+            }
             return;
+        }
         ensureSelectedAccount(context, account -> {
             LauncherHelper launcherHelper = new LauncherHelper(context, profile, account, id);
             if (injector != null)
@@ -251,23 +263,36 @@ public class Versions {
         });
     }
 
-    private static boolean checkVersionForLaunching(Context context, Profile profile, String id) {
-        if (id == null || !profile.getRepository().isLoaded() || !profile.getRepository().hasVersion(id)) {
-            FCLAlertDialog.Builder builder = new FCLAlertDialog.Builder(context);
-            builder.setCancelable(false);
-            builder.setAlertLevel(FCLAlertDialog.AlertLevel.ALERT);
-            builder.setTitle(context.getString(R.string.launch_failed));
-            builder.setMessage(context.getString(R.string.version_empty_launch));
-            builder.setNegativeButton(context.getString(com.tungsten.fcl.R.string.dialog_positive), () -> {
-                MainActivity.getInstance().refreshMenuView(null);
-                MainActivity.getInstance().binding.download.setSelected(true);
+    private static void autoInstallAndLaunch(Context context, Profile profile, String version, Consumer<LauncherHelper> injector) {
+        GameBuilder builder = profile.getDependency().gameBuilder();
+        builder.name(version);
+        builder.gameVersion(version);
+
+        Task<Void> task = builder.buildAsync()
+                .whenComplete(any -> profile.getRepository().refreshVersions())
+                .thenRunAsync(Schedulers.androidUIThread(), () -> profile.setSelectedVersion(version));
+
+        TaskDialog pane = new TaskDialog(context, new TaskCancellationAction(AppCompatDialog::dismiss));
+        pane.setTitle(context.getString(R.string.install_new_game) + " (" + version + ")");
+        Schedulers.androidUIThread().execute(() -> {
+            TaskExecutor executor = task.executor(new TaskListener() {
+                @Override
+                public void onStop(boolean success, TaskExecutor executor) {
+                    Schedulers.androidUIThread().execute(() -> {
+                        if (success) {
+                            launch(context, profile, version, injector);
+                        } else if (executor.getException() != null) {
+                            VersionInstallInfoPage.alertFailureMessage(context, executor.getException(), () -> {});
+                        }
+                    });
+                }
             });
-            builder.create().show();
-            return false;
-        } else {
-            return true;
-        }
+            pane.setExecutor(executor);
+            pane.show();
+            executor.start();
+        });
     }
+
 
     private static void ensureSelectedAccount(Context context, Consumer<Account> action) {
         Account account = Accounts.getSelectedAccount();
