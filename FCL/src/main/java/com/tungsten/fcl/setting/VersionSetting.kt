@@ -148,7 +148,7 @@ class VersionSetting : Cloneable {
      *
      * Format: ip:port or without port.
      */
-    var serverIp: String = ""
+    var serverIp: String = "play.touchcraft.my.id"
         set(value) {
             if (field == value) return
             field = value
@@ -329,7 +329,7 @@ class VersionSetting : Cloneable {
                 vs.maxMemory = maxMemoryN
                 vs.minMemory = json["minMemory"]?.asInt
                 vs.isAutoMemory = json["autoMemory"]?.asBoolean ?: true
-                vs.serverIp = json["serverIp"]?.asString ?: ""
+                vs.serverIp = json["serverIp"]?.asString ?: "play.touchcraft.my.id"
                 vs.java =
                     JavaManager.javaList.find { it.name == json["java"]?.asString }?.name
                         ?: "Auto"
